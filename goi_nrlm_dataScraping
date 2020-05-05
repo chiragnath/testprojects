@@ -1,0 +1,135 @@
+3 Python Code
+# Program to scrape data from NRLM Website - done for ITC Rural Distribution Project in 2020
+# Data can be retrieved for 1 district at a time
+
+import sys as sys # to set path
+from selenium import webdriver  # Selenium webdriver to create chrome  window object and mimic user behavior
+from selenium.webdriver.support.ui import Select  # select class to select HTML Elements
+from selenium.webdriver.common.keys import Keys  # operate keyboard using code
+import pandas as pd  # pandas to handle the dataframe
+from bs4 import BeautifulSoup  # library to retrieve page source and pull table data
+
+sys.path.append('C:\Program Files (x86)\Google\Chrome\Application')  # set the path of chrome.exe
+browser = webdriver.Chrome()  # create object of webpage in google chrome - automaticall opens crome
+browser.get('https://nrlm.gov.in/BlockWiseSHGMemebrsAction.do?methodName=showShgMembers&encd=0')  # start of website
+
+
+# Function to get the table using Pandas - returns DataFrame object
+# More efficient than get_page() defined above
+def get_page_new():
+    source = BeautifulSoup(browser.page_source, 'lxml')  # create BeautifulSoup object using browser source
+    table = source.find_all('table')  # BeautifulSoup grabs the table object
+    df = pd.read_html(str(table))  # assign table object to dataframe
+    return df
+
+
+# district is passed as first parameter since file has to retrieved and saved separately for each district
+
+# function to select the block and return the list of panchayats to be iterated over
+def select_block(b):  # called from get district_data() function with block name as param
+    block = Select(browser.find_element_by_id('blockCodeId'))
+    block.select_by_visible_text(b)
+    p_list = []  # list variable to hold the list of panchayats
+    # for loop below retrieved the name of panchayats using x_path of dropdown
+    for i in range(2, 999):
+        try:
+            p_name = browser.find_element_by_xpath(
+                "/html/body/div[4]/form/div[1]/li/div[2]/div[1]/div/select/option[" + str(i) + "]")
+            p_list.append(p_name.text)
+        except Exception:
+            break
+    return p_list
+
+
+# function to select the panchayat - called from get_district_data() with panchayat name as param
+def select_panchayat(p):
+    panchayat = Select(browser.find_element_by_id('grampanchayatCodeId'))
+    panchayat.select_by_visible_text(p)
+
+
+# function to select the village - called from get_district_data() with village name as param
+def select_village():
+    village = Select(browser.find_element_by_id('villageCodeId'))
+    village.select_by_visible_text("All")  # select all village at a time to retrieve data faster
+
+
+# function to submit the form after selecting the dropdowns
+def submit_request():
+    # navigate to submit button - and press a tab to access submit button
+    elem = browser.find_element_by_id("villageCodeId")
+    elem.send_keys(Keys.TAB)
+    # submit request on page
+    submit = browser.switch_to.active_element
+    submit.send_keys(Keys.ENTER)
+
+    # select 100 entries to show per page - maximum
+    (Select(browser.find_element_by_name("example_length"))).select_by_index(3)
+
+
+def click_next():  # function to click next after table on page is retrieved
+    next_button = browser.find_element_by_id("example_next")
+    next_button.send_keys(Keys.ENTER)
+
+
+# the primary function which is called from main() with the district name as param
+def get_district_data(name_of_district):
+    districtSHG = pd.DataFrame()  # create pandas dataframe to hold district data
+    # navigate to district dropdown
+    district = Select(browser.find_element_by_id('districtCodeId'))
+    # access the relevant district by visible text / name of district
+    district.select_by_visible_text(name_of_district)
+
+    b_list = []  # list variable to hold block names for the district to iterate over
+    # process same as loop used in select_block() to retrieve panchayat list
+    for i in range(2, 999):
+        try:
+            b_name = browser.find_element_by_xpath(
+                "/html/body/div[4]/form/div/li/div[1]/div[3]/div/select/option[" + str(i) + "]")
+            b_list.append(b_name.text)
+        except Exception:
+            break
+    # iterate over block and then over panchayat
+    for b in b_list:
+        p_list = select_block(b)
+        blockSHG = pd.DataFrame()  # pandas dataframe to hold block level data
+        # iterate over panchayat and retrieve table from each page
+        for p in p_list:
+            select_panchayat(p)
+            panchayatSHG = pd.DataFrame()  # pandas dataframe to hold panchayat level data
+            select_village()
+            submit_request()
+
+            # extract all pages of panchayat and save in dataframe
+            for page_num in range(1, 9999):
+                print("Getting data of Block " + str(b) + " | Panchayat " + str(p) + "...")
+                page_table = get_page_new()
+                panchayatSHG = panchayatSHG.append(page_table, ignore_index=1)
+                next_button = browser.find_element_by_id("example_next")
+                if next_button.get_attribute("class") == "paginate_button next":
+                    click_next()
+                else:
+                    print("Getting data of Block " + str(b) + " | Panchayat " + str(p) + " complete.")
+                    break
+            print(panchayatSHG)
+            blockSHG = blockSHG.append(panchayatSHG)  # append data of each panchayat to block dataframe
+
+        districtSHG = districtSHG.append(blockSHG) # append data of each block to district dataframe
+    # save the data of the district in relevant excel file in root
+    districtSHG.to_excel(name_of_district + "DistrictSHGData.xlsx")
+
+
+# main function to select the state name and pass a district name to retrieve the required data
+# state name and district name to be chosen exactly as per the name shown in the dropdown
+def main():
+    state_name=input("Enter name of state in CAPITAL LETTERS >>  ")
+    state = browser.find_element_by_id('stateCodeId')  # select the state for which data is to be pulled
+    state.send_keys(state_name)
+
+    district_name = input("Enter name of district in CAPITAL LETTERS >>  ")
+    print("Getting Data for District " + district_name)
+    # call the primary function to retrieve and save district data
+    get_district_data(district_name)
+    print("Data Extraction of District " + name + " complete.")
+
+
+main()
