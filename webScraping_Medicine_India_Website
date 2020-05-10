@@ -1,0 +1,81 @@
+        # Program to scrape data from medicineindia.org - done for ITC Chemist Expansion Project in 2020
+
+        import pandas as pd  # pandas to handle the dataframe
+        import requests
+        import sys as sys  # to set path
+        import time
+        from bs4 import BeautifulSoup  # library to retrieve page source and pull table data
+        from lxml import html
+        from selenium import webdriver  # Selenium webdriver to create chrome  window object and mimic user behavior
+        from selenium.webdriver.common.keys import Keys  # operate keyboard using code
+        import glob
+
+        sys.path.append('C:\Program Files (x86)\Google\Chrome\Application')  # set the path of chrome.exe
+
+        # Function to get the table using Pandas - returns DataFrame object
+        # More efficient than get_page() defined above
+        def get_data(town_name, links):
+            df = pd.DataFrame()
+            for i in links:
+                i = "https:" + i
+                print(i)
+                req = requests.get(i)
+                tree = html.fromstring(req.content)
+                name = tree.xpath('/html/body/div[1]/section/div[2]/dl/dd[1]')[0].text
+                address = tree.xpath('/html/body/div[1]/section/div[2]/dl/div/dd[1]')[0].text
+                town = tree.xpath('/html/body/div[1]/section/div[2]/dl/div/dd[2]/a')[0].text
+                phone = tree.xpath('/html/body/div[1]/section/div[2]/dl/dd[2]')[0].text
+                row = [name, address, town, phone]
+                df = df.append([row], ignore_index=False)
+            print(df)
+            return df
+
+        def get_link():
+            url = browser.current_url
+            page = requests.get(url).content
+            soup = BeautifulSoup(page, "html.parser")
+            links = set()
+            for a_link in soup.find_all("a"):
+                href = str(a_link.attrs.get("href"))
+                if "pharmacy-chemist-drugstore-details" in href:
+                    links.add(href)
+            return links
+
+
+        # district is passed as first parameter since file has to retrieved and saved separately for each district
+
+        # function to select the town name and go to the specific town page
+        def select_town(index):  # called from get_data() function with town name as param
+            i = str(index)
+            town = browser.find_element_by_xpath('/html/body/div[1]/section/div[2]/div[' + i + ']/a')
+            town_name = str(town.text)
+            town.send_keys(Keys.ENTER)
+            print("Selecting Town >> " + town_name + " | Index " + i)
+            return town_name
+
+
+        # the primary function which is called from main() with the list of districts as parameter
+        def main():
+            browser = webdriver.Chrome()  # create object of webpage in google chrome - automatically opens chrome
+            browser.get('https://www.medicineindia.org/pharmacies-chemists-drugstores-in-india')  # start of website
+            for i in range(1, 993):
+                town_name = select_town(i)
+                time.sleep(2)
+                links = get_link()
+                town_data = get_data(town_name, links)
+                town_data.to_excel(town_name + "_Data.xlsx")
+                browser.get('https://www.medicineindia.org/pharmacies-chemists-drugstores-in-india')
+
+        def combine_files():
+            Chemist_Data=pd.DataFrame()
+            for file in glob.glob("*_Data.xlsx"):
+                df=pd.read_excel(file)
+                print(file.title())
+                Chemist_Data=Chemist_Data.append(df,ignore_index=True)
+            Chemist_Data.to_excel("Chemist_Data.xlsx")
+
+        #main()
+        #combine_files()
+
+
+
